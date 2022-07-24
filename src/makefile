@@ -18,19 +18,30 @@ server: main.cpp $(OBJECTMODULES)
 client: client.c
 	$(CC) $(CFLAGSR) ./$^ -o $@
 
-create: 
-	mkdir -p ../server
+createclient: 
 	mkdir -p ../client
-	make server
 	make client
 	mv client ../client
-	mv server ../server
 	chmod -x ../client/client
+
+createserver:
+	mkdir -p ../server
+	make server
+	mv server ../server
 	chmod -x ../server/server
 
 clear:
 	rm *.o
 
-run:
-	make create
+runall:
+	make createclient
+	make createserver
+	make clear
+
+runclient:
+	make createclient
+	make clear
+
+runserver:
+	make createserver
 	make clear
