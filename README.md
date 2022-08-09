@@ -15,23 +15,7 @@ cd src
 Type in terminal
 
 ```
-make runall
-```
-
-### How to build only client
-
-Type in terminal
-
-```
-make runclient
-```
-
-### How to build only server
-
-Type in terminal
-
-```
-make runserver
+./run.sh
 ```
 
 ## How to use
