@@ -4,12 +4,6 @@ FileTransfer is a simple program to send some files via Network.
 
 ## How to build
 
-first of all, change your current directory to src:
-
-```
-cd src
-```
-
 ### How to build server and client
 
 Type in terminal
