@@ -1,17 +1,23 @@
 #include "Server.hpp"
 #include <stdio.h>
 
-static int port = 8808;
+static int port = 8888;
 
-int main()
-{
+int main() {
     EventSelector *sel = new EventSelector();
-    Server *serv = Server::Start(port, sel);
-    if (!serv)
+    if (sel == 0)
     {
-        perror("error");
+        perror("selector");
         return 1;
     }
+    
+    Server *ser = Server::Start(port, sel);
+    if (ser == 0)
+    {
+        perror("server");
+        return 2;
+    }
+    
     sel->Run();
     return 0;
 }

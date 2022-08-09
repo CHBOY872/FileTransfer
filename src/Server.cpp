@@ -9,41 +9,31 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <string.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <fcntl.h>
+#include <netdb.h>
 
-FdHandler::FdHandler(int _fd)
-    : fd(_fd), want_read(true), want_write(false) {}
-FdHandler::~FdHandler()
+enum
 {
-    close(fd);
-}
+    max_array_len = 15
+};
 
-int FdHandler::GetFd() { return fd; }
-bool FdHandler::WantRead() { return want_read; }
-bool FdHandler::WantWrite() { return want_write; }
-void FdHandler::SetRead(bool op) { want_read = op; }
-void FdHandler::SetWrite(bool op) { want_write = op; }
+FdHandler::~FdHandler() {}
 
-////////////////////////////////////////////////////////////
-
-EventSelector::EventSelector()
-    : fd_array(0), fd_array_len(0), quit_flag(false) {}
+/////////////////////////////
 
 EventSelector::~EventSelector()
 {
-    delete[] fd_array;
+    if (fd_array)
+        delete fd_array;
 }
 
 void EventSelector::Add(FdHandler *h)
 {
-    int i;
     int fd = h->GetFd();
+    int i;
     if (!fd_array)
     {
         fd_array_len =
-            fd > listen_count - 1 ? fd + 1 : listen_count;
+            fd > max_array_len - 1 ? fd + 1 : max_array_len;
         fd_array = new FdHandler *[fd_array_len];
         for (i = 0; i < fd_array_len; i++)
             fd_array[i] = 0;
@@ -66,7 +56,7 @@ void EventSelector::Add(FdHandler *h)
 void EventSelector::Remove(FdHandler *h)
 {
     int fd = h->GetFd();
-    if (fd > fd_array_len || h != fd_array[fd])
+    if (fd_array[fd] || fd_array[fd] != h)
         return;
     fd_array[fd] = 0;
     if (fd == max_fd)
@@ -79,8 +69,8 @@ void EventSelector::Remove(FdHandler *h)
 void EventSelector::Run()
 {
     fd_set rds, wrs;
-    int i, stat;
-    do
+    int i;
+    for (;;)
     {
         FD_ZERO(&rds);
         FD_ZERO(&wrs);
@@ -94,40 +84,35 @@ void EventSelector::Run()
                     FD_SET(i, &wrs);
             }
         }
-        stat = select(max_fd + 1, &rds, &wrs, 0, 0);
+        int stat = select(max_fd + 1, &rds, &wrs, 0, 0);
         if (stat <= 0)
-        {
-            quit_flag = true;
-            return;
-        }
+            break;
         for (i = 0; i <= max_fd; i++)
         {
             if (fd_array[i])
             {
-                bool r = FD_ISSET(fd_array[i]->GetFd(), &rds);
-                bool w = FD_ISSET(fd_array[i]->GetFd(), &wrs);
-                if (r || w)
-                    fd_array[i]->Handle(r, w);
+                bool r = FD_ISSET(i, &rds);
+                bool w = FD_ISSET(i, &wrs);
+                fd_array[i]->Handle(r, w);
             }
         }
-
-    } while (!quit_flag);
+    }
 }
 
-////////////////////////////////////////////////////////////
+////////////////////////////
 
 Server::Server(int _fd, EventSelector *_the_selector)
     : FdHandler(_fd), the_selector(_the_selector), first(0)
 {
-    the_selector->Add(this);
+    _the_selector->Add(this);
 }
 
 Server::~Server()
 {
-    item *tmp;
+    delete the_selector;
     while (first)
     {
-        tmp = first->next;
+        item *tmp = first->next;
         delete first;
         first = tmp;
     }
@@ -141,27 +126,26 @@ Server *Server::Start(int port, EventSelector *_the_selector)
     int opt = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     sockaddr_in addr;
-    addr.sin_port = htons(port);
-    addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htons(INADDR_ANY);
-    if (bind(fd, (sockaddr *)&addr, sizeof(addr)) == -1)
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (-1 == bind(fd, (sockaddr *)&addr, sizeof(addr)))
         return 0;
-    if (listen(fd, listen_count) == -1)
+    if (-1 == listen(fd, max_array_len))
         return 0;
     return new Server(fd, _the_selector);
 }
 
-void Server::RemoveSession(Session *s)
+void Server::RemoveClient(Client *h)
 {
-    the_selector->Remove(s);
     item **p;
-    for (p = &first; *p; p = &((*p)->next))
+    for (p = &first; *p; p = &(first->next))
     {
-        if ((*p)->sess == s)
+        if ((*p)->cl == h)
         {
             item *tmp = *p;
-            *p = (*p)->next;
-            delete tmp->sess;
+            *p = tmp->next;
+            the_selector->Remove(tmp->cl);
             delete tmp;
             return;
         }
@@ -170,76 +154,64 @@ void Server::RemoveSession(Session *s)
 
 void Server::Handle(bool r, bool w)
 {
-    sockaddr_in addr_client;
-    socklen_t len = 0;
-    int client_fd = accept(GetFd(), (sockaddr *)&addr_client, &len);
-    if (client_fd == -1)
-        return;
-    item *tmp = new item;
-    tmp->sess = new Session(client_fd, this);
-    tmp->next = first;
-    first = tmp;
-    the_selector->Add(first->sess);
-    // int flags = fcntl(client_fd, F_GETFL);
-    // fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
+    if (r)
+    {
+        sockaddr_in addr_client;
+        socklen_t len = 0;
+        int _fd = accept(GetFd(), (sockaddr *)&addr_client, &len);
+        if (-1 == _fd)
+            return;
+        item *tmp = new item(new Client(_fd, this), first);
+        first = tmp;
+        the_selector->Add(tmp->cl);
+    }
 }
 
-////////////////////////////////////////////////////////////
+///////////////////////
 
-Session::Session(int _fd, Server *_the_master)
-    : FdHandler(_fd), file_name_used(0),
-      f(0), the_master(_the_master)
+Client::Client(int _fd, Server *_the_master)
+    : FdHandler(_fd), st(not_started),
+      the_master(_the_master), f(0)
 {
-    memset(file_name, 0, max_file_name);
+    memset(buffer, 0, buf_len);
 }
 
-Session::~Session()
-{
-    if (f)
-        delete f;
-}
-
-void Session::Handle(bool r, bool w)
+void Client::Handle(bool r, bool w)
 {
     if (r)
     {
-        int rc =
-            read(GetFd(), file_name, max_file_name - file_name_used);
-        if (rc <= 0 || file_name_used + rc > max_file_name)
-        {
-            the_master->RemoveSession(this);
-            return;
-        }
         int i;
-        for (i = 0; i < rc; i++)
+        int rc = read(GetFd(), buffer, buf_len);
+        if (rc <= 0)
         {
-            if (file_name[i] == '\r')
+            the_master->RemoveClient(this);
+            return;
+        }
+
+        switch (st)
+        {
+        case not_started:
+            for (i = 0; i < rc; i++)
             {
-                file_name[i] = 0;
-                break;
+                if (buffer[i] == '\r')
+                {
+                    buffer[i] = 0;
+                    break;
+                }
             }
-        }
-        f = FileSendHandler::Start(GetFd(), file_name);
-        if (!f)
-        {
-            Send("No such file or something went wrong...\n");
-            the_master->RemoveSession(this);
-            return;
-        }
+            f = FileSender::Make(buffer, GetFd());
+            if (!f)
+            {
+                the_master->RemoveClient(this);
+                return;
+            }
+            st = started;
 
-        SetWrite(true);
-    }
-    if (w)
-    {
-        if (!f->Send())
-        {
-            SetWrite(false);
-            return;
+        case started:
+            if (!f->Send())
+                the_master->RemoveClient(this);
+            break;
         }
+        memset(buffer, 0, rc);
     }
-}
-
-void Session::Send(const char *msg)
-{
-    write(GetFd(), msg, strlen(msg));
 }

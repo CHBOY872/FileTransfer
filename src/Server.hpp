@@ -1,40 +1,40 @@
 #ifndef SERVER_HPP_SENTRY
 #define SERVER_HPP_SENTRY
-#include "FileTransferhandler.hpp"
+
+#include "FileHandler.hpp"
 
 enum
 {
-    listen_count = 16
+    buf_len = 100
 };
 
 class FdHandler
 {
     int fd;
-    bool want_read;
     bool want_write;
+    bool want_read;
 
 public:
-    FdHandler(int _fd);
-    virtual ~FdHandler();
+    FdHandler(int _fd, bool _want_write = false, bool _want_read = true)
+        : fd(_fd), want_write(_want_write), want_read(_want_read) {}
+    ~FdHandler();
 
-    int GetFd();
-    bool WantRead();
-    bool WantWrite();
-    void SetRead(bool op);
-    void SetWrite(bool op);
-
+    int GetFd() { return fd; }
+    bool WantWrite() { return want_write; }
+    bool WantRead() { return want_read; }
+    void SetRead(bool r) { want_read = r; }
+    void SetWrite(bool w) { want_write = w; }
     virtual void Handle(bool r, bool w) = 0;
 };
 
 class EventSelector
 {
     FdHandler **fd_array;
-    int fd_array_len;
     int max_fd;
-    bool quit_flag;
+    int fd_array_len;
 
 public:
-    EventSelector();
+    EventSelector() : fd_array(0), max_fd(-1), fd_array_len(0) {}
     ~EventSelector();
 
     void Add(FdHandler *h);
@@ -43,45 +43,44 @@ public:
     void Run();
 };
 
-////////////////////////////////
+////////////////////////
 
-class Session;
-
-class Server : FdHandler
+class Client;
+class Server : public FdHandler
 {
-    EventSelector *the_selector;
     struct item
     {
-        Session *sess;
+        Client *cl;
         item *next;
+        item(Client *_cl, item *_next = 0) : cl(_cl), next(_next) {}
     };
+    EventSelector *the_selector;
     item *first;
     Server(int _fd, EventSelector *_the_selector);
 
 public:
-    virtual ~Server();
+    ~Server();
     static Server *Start(int port, EventSelector *_the_selector);
-    void RemoveSession(Session *s);
+    void RemoveClient(Client *h);
 
 private:
     virtual void Handle(bool r, bool w);
 };
 
-class Session : FdHandler
+class Client : public FdHandler
 {
     friend class Server;
-    char file_name[max_file_name];
-    int file_name_used;
-
-    FileSendHandler *f;
+    enum stat {
+        not_started = 1,
+        started
+    };
+    stat st;
     Server *the_master;
-
-public:
-    Session(int _fd, Server *_the_master);
-    virtual ~Session();
+    FileSender *f;
+    char buffer[buf_len];
+    Client(int _fd, Server *_the_master);
 
 private:
-    void Send(const char *msg);
     virtual void Handle(bool r, bool w);
 };
 

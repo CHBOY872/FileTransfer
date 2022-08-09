@@ -1,47 +1,31 @@
-CC = gcc
-CFLAGSD = -Wall -g -ansi
-CFLAGSR = -Wall -s -ansi
+CC=gcc
+CFLAGS=-Wall -ansi
 
-CXX = g++
-CXXFLAGSD = -Wall -g -ansi
-CXXFLAGSR = -Wall -s -ansi
-SOURCEMODULES = FileTransferhandler.cpp Server.cpp
-OBJECTMODULES = $(SOURCEMODULES:.cpp=.o)
-
+CPP=g++
+CPPFLAGS=-Wall -ansi
+SRCMODULES=FileHandler.cpp Server.cpp
+OBJMODULED=$(SRCMODULES:.cpp=.o)
 
 %.o: %.cpp %.hpp
-	$(CXX) $(CXXFLAGSD) ./$< -c
+	$(CPP) $(CPPFLAGS) -g $< -c -o $@
 
-server: main.cpp $(OBJECTMODULES)
-	$(CXX) $(CXXFLAGSR) ./$^ -o $@
+server: main.cpp $(SRCMODULES)
+	$(CPP) $(CPPFLAGS) -g $^ -o $@
 
 client: client.c
-	$(CC) $(CFLAGSR) ./$^ -o $@
+	$(CC) $(CFLAGS) -g $< -o $@
 
-createclient: 
-	mkdir -p ../client
-	make client
-	mv client ../client
-	chmod -x ../client/client
-
-createserver:
-	mkdir -p ../server
+all:
 	make server
+	make client
+
+runcall:
+	mkdir -p ../server
+	mkdir -p ../client
+	make all
 	mv server ../server
-	chmod -x ../server/server
-
-clear:
+	mv client ../client
+	chmod ugo+x ../server
+	chmod ugo+x ../client
+	echo "afjkdhfkjadhfjkadhfjahfkajdfhakdhfjadfhajkdfhadfkjhadfkjadhfkjadhfjahdfkjadfjafhajkdfakjdf" > ../server/main.txt
 	rm *.o
-
-runall:
-	make createclient
-	make createserver
-	make clear
-
-runclient:
-	make createclient
-	make clear
-
-runserver:
-	make createserver
-	make clear

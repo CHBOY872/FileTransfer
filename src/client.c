@@ -8,82 +8,60 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <string.h>
-#include <signal.h>
-#include <stdlib.h>
+#include <netdb.h>
 #include <fcntl.h>
 
-enum
-{
-    max_file_name = 1024,
-    send_size_buf = 512
-};
+#define READ_BUF 1024
 
-static int port = 8808;
-
-int socket_connect(int port, const char *ip)
-{
-    int socket_client = socket(AF_INET, SOCK_STREAM, 0);
-    int opt = 1;
-    int socket_server;
-    struct sockaddr_in server_addr, addr_client;
-
-    if (-1 == socket_client)
-        return -1;
-    setsockopt(socket_client, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    addr_client.sin_addr.s_addr = htons(INADDR_ANY);
-    addr_client.sin_port = htons(port);
-    addr_client.sin_family = AF_INET;
-    bind(socket_client, (struct sockaddr *)&addr_client, sizeof(addr_client));
-    server_addr.sin_addr.s_addr = inet_addr(ip);
-    server_addr.sin_port = htons(port);
-    server_addr.sin_family = AF_INET;
-    socket_server = connect(socket_client, (struct sockaddr *)&server_addr,
-                            sizeof(server_addr));
-    if (-1 == socket_server)
-        return -1;
-    return socket_client;
-}
-
-void send_request(int fd, const char *file)
-{
-    write(fd, file, strlen(file));
-}
-
-void write_file(int fd, const char *file_name)
-{
-    int fd_file = open(file_name, O_CREAT | O_TRUNC | O_WRONLY, 0777);
-    if (-1 == fd_file)
-    {
-        perror("handle");
-        return;
-    }
-    char buf[send_size_buf];
-    int stat = read(fd, buf, send_size_buf);
-
-    do
-    {
-        memset(buf, 0, send_size_buf);
-        stat = read(fd, buf, send_size_buf);
-        write(fd_file, buf, stat);
-    } while (stat == send_size_buf);
-    close(fd_file);
-    close(fd);
-}
+static int port = 8888;
 
 int main(int argc, const char **argv)
 {
     if (argc != 3)
     {
-        printf("usage: <to ip connect> <file to receive>\n");
+        printf("Usage: <ip> <file>\n");
         return 1;
     }
-    int socket_client = socket_connect(port, argv[1]);
-    if (-1 == socket_client)
+    char buffer[BUFSIZ];
+    memset(buffer, 0, BUFSIZ);
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (-1 == fd)
     {
         perror("socket");
-        return 1;
+        return 2;
     }
-    send_request(socket_client, argv[2]);
-    write_file(socket_client, argv[2]);
+    struct sockaddr_in server_addr;
+    server_addr.sin_addr.s_addr = inet_addr(argv[1]);
+    server_addr.sin_port = htons(port);
+    server_addr.sin_family = AF_INET;
+    int stat = connect(fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    if (-1 == stat)
+    {
+        perror("connect");
+        return 3;
+    }
+    write(fd, argv[2], strlen(argv[2]));
+    int rc;
+    int to_fd = open(argv[2], O_CREAT | O_WRONLY | O_TRUNC, 0777);
+    if (-1 == to_fd)
+    {
+        perror("file");
+        return 4;
+    }
+
+    do
+    {
+        rc = read(fd, buffer, BUFSIZ);
+        write(fd, "1", 2);
+        if (rc == 0)
+            break;
+        write(to_fd, buffer, rc);
+        memset(buffer, 0, rc);
+    } while (rc == READ_BUF);
+
+    close(fd);
+    close(to_fd);
     return 0;
 }
